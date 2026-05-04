@@ -11,6 +11,21 @@ Workflows GitHub Actions reusable centralizados pros projetos do `andreroederdel
 | `.github/workflows/node-ci.yml` | TypeScript/JS (auto-detecta pnpm/npm/bun) | `node-version`, `tests-strict`, `format-strict` |
 | `.github/workflows/python-ci.yml` | Python (pip/poetry, ruff, mypy, pytest) | `python-version`, `tests-strict` |
 | `.github/workflows/security.yml` | Audit (npm/pnpm/pip-audit) + gitleaks + CodeQL | `audit-level`, `codeql-language` |
+| `.github/workflows/e2e.yml` | Playwright + smoke HTTP (gate prod) | `node-version`, `browser`, `target-url` |
+
+## Fluxo dev → stage → main (gates progressivos)
+
+Os consumer templates já vêm configurados pra rodar em PRs contra `dev`, `stage` e `main` com strictness diferente:
+
+| Promoção | tests-strict | format-strict | audit-level | E2E |
+|----------|:------------:|:-------------:|:-----------:|:---:|
+| qualquer → `dev`   | falso (warning) | falso | high | não |
+| `dev` → `stage`    | **verdadeiro** | falso | high | não |
+| `stage` → `main`   | **verdadeiro** | **verdadeiro** | **low** | **sim** |
+
+A intenção: bug deve ser pego antes de prod. PR pra dev pode entrar com warnings (rapidez), pra stage tem que ser verde, pra main é gate completo + Playwright + smoke contra ambiente stage.
+
+Pra ativar em um repo, basta criar as branches `dev` e `stage`. Sem elas, o fluxo continua sendo só PR pra main (compatibilidade total).
 
 ## Como aplicar num projeto
 
