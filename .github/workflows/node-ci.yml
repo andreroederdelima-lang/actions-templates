@@ -1,0 +1,162 @@
+name: Node CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: '22'
+      package-manager:
+        type: string
+        default: 'auto'
+        description: "auto | pnpm | npm | bun. Auto-detecta pelo lockfile se 'auto'."
+      run-tests:
+        type: boolean
+        default: true
+      run-build:
+        type: boolean
+        default: true
+      tests-strict:
+        type: boolean
+        default: false
+        description: "Se true, testes falhos bloqueiam merge"
+      format-strict:
+        type: boolean
+        default: false
+        description: "Se true, prettier --check bloqueia merge"
+
+jobs:
+  detect:
+    name: Detect package manager
+    runs-on: ubuntu-latest
+    outputs:
+      pm: ${{ steps.set.outputs.pm }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set
+        shell: bash
+        run: |
+          PM="${{ inputs.package-manager }}"
+          if [ "$PM" = "auto" ]; then
+            if [ -f pnpm-lock.yaml ]; then PM="pnpm"
+            elif [ -f bun.lockb ] || [ -f bun.lock ]; then PM="bun"
+            elif [ -f package-lock.json ]; then PM="npm"
+            else PM="npm"; fi
+          fi
+          echo "pm=$PM" >> $GITHUB_OUTPUT
+          echo "Detectado: $PM"
+
+  format:
+    name: Format check (informational)
+    needs: detect
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ !inputs.format-strict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: needs.detect.outputs.pm == 'pnpm'
+        run: corepack enable
+      - if: needs.detect.outputs.pm == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - name: Install + format check
+        shell: bash
+        run: |
+          PM="${{ needs.detect.outputs.pm }}"
+          case "$PM" in
+            pnpm) pnpm install --frozen-lockfile ; RUN="pnpm run" ;;
+            bun)  bun install --frozen-lockfile ; RUN="bun run" ;;
+            *)    npm ci ; RUN="npm run" ;;
+          esac
+          if grep -q '"format:check"' package.json 2>/dev/null; then
+            $RUN format:check
+          else
+            echo "Sem script format:check — pulando"
+          fi
+
+  typecheck:
+    name: TypeScript check
+    needs: detect
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: needs.detect.outputs.pm == 'pnpm'
+        run: corepack enable
+      - if: needs.detect.outputs.pm == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - name: Install + typecheck
+        shell: bash
+        run: |
+          PM="${{ needs.detect.outputs.pm }}"
+          case "$PM" in
+            pnpm) pnpm install --frozen-lockfile ; RUN="pnpm run" ;;
+            bun)  bun install --frozen-lockfile ; RUN="bun run" ;;
+            *)    npm ci ; RUN="npm run" ;;
+          esac
+          if grep -q '"typecheck"' package.json; then $RUN typecheck
+          elif grep -q '"check"' package.json; then $RUN check
+          elif [ -f tsconfig.json ]; then npx tsc --noEmit
+          else echo "Projeto sem TypeScript — pulando"; fi
+
+  test:
+    if: ${{ inputs.run-tests }}
+    name: Tests
+    needs: detect
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ !inputs.tests-strict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: needs.detect.outputs.pm == 'pnpm'
+        run: corepack enable
+      - if: needs.detect.outputs.pm == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - name: Install + test
+        shell: bash
+        run: |
+          PM="${{ needs.detect.outputs.pm }}"
+          case "$PM" in
+            pnpm) pnpm install --frozen-lockfile ; RUN="pnpm run" ;;
+            bun)  bun install --frozen-lockfile ; RUN="bun run" ;;
+            *)    npm ci ; RUN="npm run" ;;
+          esac
+          if grep -q '"test"' package.json 2>/dev/null; then
+            $RUN test
+          else
+            echo "Sem script test — pulando"
+          fi
+
+  build:
+    if: ${{ inputs.run-build }}
+    name: Build
+    needs: [detect, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: needs.detect.outputs.pm == 'pnpm'
+        run: corepack enable
+      - if: needs.detect.outputs.pm == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - name: Install + build
+        shell: bash
+        run: |
+          PM="${{ needs.detect.outputs.pm }}"
+          case "$PM" in
+            pnpm) pnpm install --frozen-lockfile ; RUN="pnpm run" ;;
+            bun)  bun install --frozen-lockfile ; RUN="bun run" ;;
+            *)    npm ci ; RUN="npm run" ;;
+          esac
+          if grep -q '"build"' package.json 2>/dev/null; then
+            $RUN build
+          else
+            echo "Sem script build — pulando"
+          fi

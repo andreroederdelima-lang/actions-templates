@@ -1,0 +1,75 @@
+name: Security (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      audit-level:
+        type: string
+        default: 'high'
+        description: "Severidade mínima pra falhar (low, moderate, high, critical)"
+      run-codeql:
+        type: boolean
+        default: true
+      codeql-language:
+        type: string
+        default: 'javascript-typescript'
+        description: "javascript-typescript | python | etc"
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: '22'
+      - name: Audit
+        shell: bash
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm audit --audit-level=${{ inputs.audit-level }}
+          elif [ -f package-lock.json ]; then
+            npm audit --audit-level=${{ inputs.audit-level }}
+          elif [ -f bun.lockb ] || [ -f bun.lock ]; then
+            echo "bun audit ainda imaturo — pulando"
+          elif [ -f requirements.txt ]; then
+            pip install pip-audit
+            pip-audit -r requirements.txt
+          else
+            echo "Sem deps detectáveis — pulando audit"
+          fi
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  codeql:
+    if: ${{ inputs.run-codeql }}
+    name: CodeQL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.codeql-language }}
+          queries: security-and-quality
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ inputs.codeql-language }}"

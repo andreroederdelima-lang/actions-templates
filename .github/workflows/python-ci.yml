@@ -1,0 +1,98 @@
+name: Python CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: '3.12'
+      run-tests:
+        type: boolean
+        default: true
+      tests-strict:
+        type: boolean
+        default: false
+
+jobs:
+  install-info:
+    name: Detect deps file
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.set.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set
+        shell: bash
+        run: |
+          if [ -f pyproject.toml ]; then echo "mode=poetry-or-pep621" >> $GITHUB_OUTPUT
+          elif [ -f requirements.txt ]; then echo "mode=requirements" >> $GITHUB_OUTPUT
+          else echo "mode=none" >> $GITHUB_OUTPUT; fi
+
+  lint:
+    name: Lint (ruff if disponível)
+    needs: install-info
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install ruff e rodar
+        shell: bash
+        run: |
+          pip install ruff
+          ruff check . || true
+          ruff format --check . || true
+
+  typecheck:
+    name: Type check (mypy se configurado)
+    needs: install-info
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: mypy se .mypy.ini ou mypy em pyproject
+        shell: bash
+        run: |
+          if [ -f .mypy.ini ] || grep -q '\[tool.mypy\]' pyproject.toml 2>/dev/null; then
+            pip install mypy
+            mypy . || true
+          else
+            echo "Sem config mypy — pulando"
+          fi
+
+  test:
+    if: ${{ inputs.run-tests }}
+    name: Tests (pytest)
+    needs: install-info
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ !inputs.tests-strict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install + test
+        shell: bash
+        run: |
+          MODE="${{ needs.install-info.outputs.mode }}"
+          case "$MODE" in
+            requirements) pip install -r requirements.txt ;;
+            poetry-or-pep621)
+              if grep -q '\[tool.poetry\]' pyproject.toml; then
+                pip install poetry && poetry install --no-interaction
+              else
+                pip install -e . || pip install .
+              fi
+              ;;
+          esac
+          pip install pytest
+          if find . -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+            pytest -q || ${{ inputs.tests-strict }}
+          else
+            echo "Sem testes — pulando"
+          fi

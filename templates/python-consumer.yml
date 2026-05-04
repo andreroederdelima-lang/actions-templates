@@ -1,0 +1,28 @@
+# Cole este arquivo em .github/workflows/ci.yml do seu repo Python.
+# Atualiza no actions-templates → propaga.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  ci:
+    uses: andreroederdelima-lang/actions-templates/.github/workflows/python-ci.yml@main
+    with:
+      python-version: '3.12'
+      tests-strict: false
+
+  security:
+    uses: andreroederdelima-lang/actions-templates/.github/workflows/security.yml@main
+    with:
+      audit-level: 'high'
+      codeql-language: 'python'
