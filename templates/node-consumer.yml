@@ -1,16 +1,16 @@
 # Cole este arquivo em .github/workflows/ci.yml do seu repo Node/TypeScript.
 # Auto-detecta pnpm/npm/bun pelo lockfile. Atualiza no actions-templates → propaga.
 #
-# Fluxo de portões: PR pra `dev` (relaxado) → `stage` (estrito) → `main` (prod gate + E2E).
+# Fluxo de portões: PR pra `dev` (relaxado) → `staging` (estrito) → `main` (prod gate + E2E).
 # Repo só com `main` continua funcionando — basta usar PR pra main.
 
 name: CI
 
 on:
   pull_request:
-    branches: [main, stage, dev]
+    branches: [main, staging, dev]
   push:
-    branches: [main, stage, dev]
+    branches: [main, staging, dev]
 
 permissions:
   contents: read
@@ -23,14 +23,14 @@ jobs:
     with:
       node-version: '22'
       package-manager: 'auto'
-      # Strict só quando promovendo pra stage ou main
-      tests-strict: ${{ github.base_ref == 'stage' || github.base_ref == 'main' }}
+      # Strict só quando promovendo pra staging ou main
+      tests-strict: ${{ github.base_ref == 'staging' || github.base_ref == 'main' }}
       format-strict: ${{ github.base_ref == 'main' }}
 
   security:
     uses: andreroederdelima-lang/actions-templates/.github/workflows/security.yml@main
     with:
-      # PR pra main = audit mais agressivo (low). PR pra stage/dev = high.
+      # PR pra main = audit mais agressivo (low). PR pra staging/dev = high.
       audit-level: ${{ github.base_ref == 'main' && 'low' || 'high' }}
       codeql-language: 'javascript-typescript'
 
@@ -41,4 +41,4 @@ jobs:
     with:
       node-version: '22'
       package-manager: 'auto'
-      # target-url: 'https://stage.<projeto>.com'  # opcional, configure por repo
+      # target-url: 'https://staging.<projeto>.com'  # opcional, configure por repo

@@ -1,15 +1,15 @@
 # Cole este arquivo em .github/workflows/ci.yml do seu repo Python.
 # Atualiza no actions-templates → propaga.
 #
-# Fluxo de portões: PR pra `dev` (relaxado) → `stage` (estrito) → `main` (prod).
+# Fluxo de portões: PR pra `dev` (relaxado) → `staging` (estrito) → `main` (prod).
 
 name: CI
 
 on:
   pull_request:
-    branches: [main, stage, dev]
+    branches: [main, staging, dev]
   push:
-    branches: [main, stage, dev]
+    branches: [main, staging, dev]
 
 permissions:
   contents: read
@@ -21,8 +21,8 @@ jobs:
     uses: andreroederdelima-lang/actions-templates/.github/workflows/python-ci.yml@main
     with:
       python-version: '3.12'
-      # Strict quando promovendo pra stage ou main
-      tests-strict: ${{ github.base_ref == 'stage' || github.base_ref == 'main' }}
+      # Strict quando promovendo pra staging ou main
+      tests-strict: ${{ github.base_ref == 'staging' || github.base_ref == 'main' }}
 
   security:
     uses: andreroederdelima-lang/actions-templates/.github/workflows/security.yml@main
