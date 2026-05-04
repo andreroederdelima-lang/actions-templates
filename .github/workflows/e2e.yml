@@ -1,0 +1,127 @@
+name: E2E (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: '22'
+      package-manager:
+        type: string
+        default: 'auto'
+      browser:
+        type: string
+        default: 'chromium'
+        description: "chromium | firefox | webkit | all"
+      target-url:
+        type: string
+        default: ''
+        description: "URL do ambiente alvo pra rodar smoke test (opcional)"
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect E2E setup
+    runs-on: ubuntu-latest
+    outputs:
+      pm: ${{ steps.set.outputs.pm }}
+      has-playwright: ${{ steps.set.outputs.has-playwright }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set
+        shell: bash
+        run: |
+          PM="${{ inputs.package-manager }}"
+          if [ "$PM" = "auto" ]; then
+            if [ -f pnpm-lock.yaml ]; then PM="pnpm"
+            elif [ -f bun.lockb ] || [ -f bun.lock ]; then PM="bun"
+            else PM="npm"; fi
+          fi
+          echo "pm=$PM" >> $GITHUB_OUTPUT
+          if [ -f playwright.config.ts ] || [ -f playwright.config.js ] || [ -f playwright.config.mjs ]; then
+            echo "has-playwright=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-playwright=false" >> $GITHUB_OUTPUT
+          fi
+
+  playwright:
+    name: Playwright E2E
+    needs: detect
+    if: needs.detect.outputs.has-playwright == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: needs.detect.outputs.pm == 'pnpm'
+        run: corepack enable
+      - if: needs.detect.outputs.pm == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - name: Install deps
+        shell: bash
+        run: |
+          PM="${{ needs.detect.outputs.pm }}"
+          case "$PM" in
+            pnpm) pnpm install --frozen-lockfile ;;
+            bun)  bun install --frozen-lockfile ;;
+            *)    npm ci ;;
+          esac
+      - name: Install Playwright browsers
+        shell: bash
+        run: |
+          if [ "${{ inputs.browser }}" = "all" ]; then
+            npx playwright install --with-deps
+          else
+            npx playwright install --with-deps ${{ inputs.browser }}
+          fi
+      - name: Run Playwright
+        shell: bash
+        env:
+          BASE_URL: ${{ inputs.target-url }}
+        run: |
+          PM="${{ needs.detect.outputs.pm }}"
+          case "$PM" in
+            pnpm) pnpm exec playwright test ;;
+            bun)  bunx playwright test ;;
+            *)    npx playwright test ;;
+          esac
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+  smoke:
+    name: Smoke test (HTTP)
+    needs: detect
+    if: inputs.target-url != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: HTTP smoke
+        shell: bash
+        run: |
+          URL="${{ inputs.target-url }}"
+          echo "Testando $URL"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "✓ $URL respondeu $STATUS"
+          else
+            echo "✗ $URL respondeu $STATUS"
+            exit 1
+          fi
+
+  no-e2e-found:
+    name: E2E status
+    needs: detect
+    if: needs.detect.outputs.has-playwright == 'false' && inputs.target-url == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: |
+          echo "::warning::Repo sem playwright.config e sem target-url — gate prod sem E2E."
+          echo "Considere adicionar Playwright (npm init playwright@latest) ou definir target-url no consumer."
